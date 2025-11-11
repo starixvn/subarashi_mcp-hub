@@ -1,7 +1,7 @@
 # ========================================
 # Stage 1: Builder
 # ========================================
-FROM node:24.11.0-slim AS builder
+FROM hub.nexdev.net/base/node:24-alpine-25h2 AS builder
 
 WORKDIR /app
 
@@ -21,11 +21,11 @@ RUN npm run build
 # ========================================
 # Stage 2: Runtime (Production)
 # ========================================
-FROM node:24.11.0-slim AS runtime
+FROM hub.nexdev.net/base/node:24-alpine-25h2 AS runtime
 
 # Set production environment
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=5000
 
 # Create non-root user and group
 RUN groupadd -r -g 1000 node && \
@@ -45,7 +45,7 @@ RUN npm ci --omit=dev
 COPY --chown=node:node --from=builder /app/dist ./dist
 
 # Expose port
-EXPOSE 3000
+EXPOSE 5000
 
 # Switch to non-root user
 USER node
