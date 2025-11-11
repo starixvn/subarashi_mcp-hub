@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { transportRegistry } from "./transportRegistry.js";
 import { randomUUID } from "crypto";
@@ -9,7 +9,7 @@ import { randomUUID } from "crypto";
  * Supports GET (SSE), POST (messages), and DELETE (session termination)
  */
 export async function handleMCPRequest(
-  server: Server,
+  server: McpServer,
   req: Request,
   res: Response
 ): Promise<void> {
