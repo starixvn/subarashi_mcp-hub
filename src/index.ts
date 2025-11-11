@@ -26,10 +26,10 @@ registerRoutes(app);
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Multi-SSE MCP Server running on http://localhost:${PORT}`);
-  console.log(`\n📡 Available SSE Endpoints:`);
-  console.log(`   - http://localhost:${PORT}/gitlab/sse`);
-  console.log(`   - http://localhost:${PORT}/sonarqube/sse`);
+  console.log(`🚀 Multi-MCP Server running on http://localhost:${PORT}`);
+  console.log(`\n📡 Available MCP Endpoints:`);
+  console.log(`   - http://localhost:${PORT}/gitlab/mcp`);
+  console.log(`   - http://localhost:${PORT}/sonarqube/mcp`);
   console.log(`\n💚 Health check: http://localhost:${PORT}/health`);
   console.log(`📋 Config: http://localhost:${PORT}/\n`);
 });

@@ -1,14 +1,13 @@
 import { Express, Request, Response } from "express";
 import { createMCPServer } from "@/lib/mcpServer.js";
-import { handleSSEConnection } from "@/lib/sseHandler.js";
+import { handleMCPRequest } from "@/lib/mcpHandler.js";
 import sonarqubeService from "@/services/sonarqube/index.js";
 import { SonarQubeConfig } from "@/services/sonarqube/config.js";
-import { sessionRegistry } from "@/lib/sessionRegistry.js";
 
 export function sonarqubeRoute(app: Express): void {
-  // SSE endpoint for SonarQube MCP server
-  app.get("/sonarqube/sse", async (req: Request, res: Response) => {
-    console.log("📡 [SonarQube] New SSE connection");
+  // Single MCP endpoint that handles GET (SSE), POST (messages), and DELETE (session close)
+  app.all("/sonarqube/mcp", async (req: Request, res: Response) => {
+    console.log(`[SonarQube] ${req.method} request to /sonarqube/mcp`);
 
     // Require config from headers
     const sonarqubeUrl = req.headers['x-sonarqube-url'] as string | undefined;
@@ -17,8 +16,12 @@ export function sonarqubeRoute(app: Express): void {
     // Headers are required - no environment variable fallback
     if (!sonarqubeUrl || !sonarqubeToken) {
       res.status(400).json({
-        error: "Missing required headers",
-        message: "X-SonarQube-URL and X-SonarQube-Token headers are required",
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "Missing required headers: X-SonarQube-URL and X-SonarQube-Token are required",
+        },
+        id: null,
       });
       return;
     }
@@ -28,7 +31,7 @@ export function sonarqubeRoute(app: Express): void {
         url: sonarqubeUrl,
         token: sonarqubeToken,
       };
-      console.log(`📡 [SonarQube] Using header config: ${config.url}`);
+      console.log(`[SonarQube] Using header config: ${config.url}`);
       const executeTool = sonarqubeService.createExecutor(config);
 
       const server = createMCPServer({
@@ -38,48 +41,21 @@ export function sonarqubeRoute(app: Express): void {
         executeTool,
       });
 
-      await handleSSEConnection(server, req, res);
+      await handleMCPRequest(server, req, res);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[SonarQube] SSE setup failed: ${errorMessage}`, error);
+      console.error(`[SonarQube] MCP request failed: ${errorMessage}`, error);
 
       // Only send response if headers haven't been sent yet
       if (!res.headersSent) {
-        res.status(500).json({ error: "Failed to setup SSE connection" });
-      }
-    }
-  });
-
-  // Message endpoint for this service
-  // IMPORTANT: Do not use express.json() or express.text() middleware here
-  // The SSEServerTransport.handlePostMessage() needs to read the raw request body
-  app.post("/sonarqube/message", async (req: Request, res: Response) => {
-    // Extract sessionId from query parameters
-    const sessionId = req.query.sessionId as string;
-
-    if (!sessionId) {
-      console.error("[SonarQube] POST /sonarqube/message: Missing sessionId in query");
-      res.status(400).json({ error: "Missing sessionId query parameter" });
-      return;
-    }
-
-    // Look up the transport for this session
-    const transport = sessionRegistry.get(sessionId);
-
-    if (!transport) {
-      console.error(`[SonarQube] POST /sonarqube/message: Session not found: ${sessionId}`);
-      res.status(404).json({ error: "Session not found or expired" });
-      return;
-    }
-
-    try {
-      // Route the POST message to the correct transport
-      // The transport will read the raw body internally
-      await transport.handlePostMessage(req, res);
-    } catch (error) {
-      console.error(`[SonarQube] Error handling POST message for session ${sessionId}:`, error);
-      if (!res.headersSent) {
-        res.status(500).json({ error: "Failed to process message" });
+        res.status(500).json({
+          jsonrpc: "2.0",
+          error: {
+            code: -32000,
+            message: "Failed to handle MCP request",
+          },
+          id: null,
+        });
       }
     }
   });
