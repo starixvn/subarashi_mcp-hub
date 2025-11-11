@@ -1,19 +1,13 @@
 import { SonarQubeConfig } from "../config.js";
 import { MCPTool, ToolResult } from "@/lib/mcpServer.js";
 import { createHttpClient } from "@/lib/httpClient.js";
+import { z } from "zod";
 
 export const getMetricsTool: MCPTool = {
   name: "get_project_metrics",
   description: "Fetch SonarQube metrics (bugs, coverage, code smells, etc.)",
   inputSchema: {
-    type: "object",
-    properties: {
-      project_key: {
-        type: "string",
-        description: "The project key to fetch metrics for",
-      },
-    },
-    required: ["project_key"],
+    project_key: z.string().describe("The project key to fetch metrics for"),
   },
 };
 

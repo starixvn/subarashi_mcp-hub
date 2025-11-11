@@ -1,33 +1,29 @@
 import { SonarQubeConfig } from "../config.js";
 import { MCPTool, ToolResult } from "@/lib/mcpServer.js";
 import { createHttpClient } from "@/lib/httpClient.js";
+import { z } from "zod";
 
 export const getFileCoverageTool: MCPTool = {
   name: "get_file_coverage",
   description:
     "Get code coverage metrics for each file in the project with pagination support",
   inputSchema: {
-    type: "object",
-    properties: {
-      project_key: {
-        type: "string",
-        description: "The project key to fetch coverage for",
-      },
-      page: {
-        type: "number",
-        description: "Page number (1-based, default: 1)",
-      },
-      page_size: {
-        type: "number",
-        description: "Items per page (default: 100, max: 500)",
-      },
-      sort: {
-        type: "string",
-        description:
-          "Sort field: coverage, uncovered_lines, lines_to_cover (optional, default: coverage)",
-      },
-    },
-    required: ["project_key"],
+    project_key: z.string().describe("The project key to fetch coverage for"),
+    page: z
+      .number()
+      .optional()
+      .default(1)
+      .describe("Page number (1-based, default: 1)"),
+    page_size: z
+      .number()
+      .optional()
+      .default(100)
+      .describe("Items per page (default: 100, max: 500)"),
+    sort: z
+      .string()
+      .optional()
+      .default("coverage")
+      .describe("Sort field: coverage, uncovered_lines, lines_to_cover (optional, default: coverage)"),
   },
 };
 

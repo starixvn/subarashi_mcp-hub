@@ -1,45 +1,35 @@
 import { GitLabConfig } from "../config.js";
 import { MCPTool, ToolResult } from "@/lib/mcpServer.js";
 import { createHttpClient } from "@/lib/httpClient.js";
+import { z } from "zod";
 
 export const getMergeRequestTool: MCPTool = {
   name: "get-merge-request-details",
   description:
-    "Get GitLab merge request details with code review comments (supports pagination)",
+    "Get GitLab merge request details with code review comments. Returns a formatted Markdown summary with pagination support.",
   inputSchema: {
-    type: "object",
-    properties: {
-      url: {
-        type: "string",
-        description:
-          "Full GitLab MR URL (e.g., 'https://gitlab.nexdev.net/group/project/-/merge_requests/3')",
-      },
-      projectPath: {
-        type: "string",
-        description: "Project path (e.g., 'group/project')",
-      },
-      mrId: {
-        type: ["string", "number"],
-        description: "MR ID",
-      },
-      page: {
-        type: "number",
-        description: "Page number (default: 1)",
-        default: 1,
-      },
-      per_page: {
-        type: "number",
-        description: "Notes per page (1-100, default: 100)",
-        default: 100,
-      },
-      sort: {
-        type: "string",
-        enum: ["asc", "desc"],
-        description: "Sort order (default: desc)",
-        default: "desc",
-      },
-    },
-    required: [],
+    url: z
+      .string()
+      .describe(
+        "Full GitLab merge request URL (e.g., 'https://gitlab.nexdev.net/group/project/-/merge_requests/3')"
+      ),
+    page: z
+      .number()
+      .optional()
+      .default(1)
+      .describe("Page number for pagination (default: 1)"),
+    per_page: z
+      .number()
+      .optional()
+      .default(100)
+      .describe("Notes per page (1-100, default: 100)"),
+    sort: z
+      .enum(["asc", "desc"])
+      .optional()
+      .default("desc")
+      .describe(
+        "Sort order by creation date (asc=oldest first, desc=newest first, default: desc)"
+      ),
   },
 };
 
@@ -67,9 +57,7 @@ function parseGitLabMRUrl(url: string): ParsedMRUrl {
 }
 
 interface MergeRequestArgs {
-  url?: string;
-  projectPath?: string;
-  mrId?: string | number;
+  url: string;
   page?: number;
   per_page?: number;
   sort?: "asc" | "desc";
@@ -88,37 +76,23 @@ export function createMergeRequestHandler(config: GitLabConfig) {
         error: "❌ GitLab not configured. Provide gitlab_url and gitlab_token query parameters.",
       };
     }
-
+    console.log('call mcp')
     try {
-      let finalProjectPath = args.projectPath;
-      let finalMrId = args.mrId;
-
-      if (args.url) {
-        const parsed = parseGitLabMRUrl(args.url);
-        finalProjectPath = parsed.projectPath;
-        finalMrId = parsed.mrId;
-      }
-
-      if (!finalProjectPath || !finalMrId) {
-        return {
-          error: "❌ Either url OR both projectPath and mrId are required",
-        };
-      }
-
-      const encodedProjectPath = encodeURIComponent(finalProjectPath);
+      const parsed = parseGitLabMRUrl(args.url);
+      const encodedProjectPath = encodeURIComponent(parsed.projectPath);
       const page = args.page || 1;
       const perPage = Math.min(args.per_page || 100, 100);
       const sort = args.sort || "desc";
 
       // Fetch MR
       const mrResponse = await client.get(
-        `/api/v4/projects/${encodedProjectPath}/merge_requests/${finalMrId}`
+        `/api/v4/projects/${encodedProjectPath}/merge_requests/${parsed.mrId}`
       );
       const mergeRequest = mrResponse.data;
 
       // Fetch notes with pagination
       const notesResponse = await client.get(
-        `/api/v4/projects/${encodedProjectPath}/merge_requests/${finalMrId}/notes`,
+        `/api/v4/projects/${encodedProjectPath}/merge_requests/${parsed.mrId}/notes`,
         {
           params: {
             page,

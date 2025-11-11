@@ -1,43 +1,36 @@
 import { SonarQubeConfig } from "../config.js";
 import { MCPTool, ToolResult } from "@/lib/mcpServer.js";
 import { createHttpClient } from "@/lib/httpClient.js";
+import { z } from "zod";
 
 export const getIssuesTool: MCPTool = {
   name: "get_project_issues",
   description:
     "Fetch detailed project issues (bugs, vulnerabilities, code smells) with pagination and filtering support",
   inputSchema: {
-    type: "object",
-    properties: {
-      project_key: {
-        type: "string",
-        description: "The project key to fetch issues for",
-      },
-      types: {
-        type: "string",
-        description:
-          "Comma-separated issue types: BUG, VULNERABILITY, CODE_SMELL (optional)",
-      },
-      severities: {
-        type: "string",
-        description:
-          "Comma-separated severities: BLOCKER, CRITICAL, MAJOR, MINOR, INFO (optional)",
-      },
-      statuses: {
-        type: "string",
-        description:
-          "Comma-separated statuses: OPEN, CONFIRMED, REOPENED, RESOLVED, CLOSED (optional)",
-      },
-      page: {
-        type: "number",
-        description: "Page number (1-based, default: 1)",
-      },
-      page_size: {
-        type: "number",
-        description: "Items per page (default: 100, max: 500)",
-      },
-    },
-    required: ["project_key"],
+    project_key: z.string().describe("The project key to fetch issues for"),
+    types: z
+      .string()
+      .optional()
+      .describe("Comma-separated issue types: BUG, VULNERABILITY, CODE_SMELL (optional)"),
+    severities: z
+      .string()
+      .optional()
+      .describe("Comma-separated severities: BLOCKER, CRITICAL, MAJOR, MINOR, INFO (optional)"),
+    statuses: z
+      .string()
+      .optional()
+      .describe("Comma-separated statuses: OPEN, CONFIRMED, REOPENED, RESOLVED, CLOSED (optional)"),
+    page: z
+      .number()
+      .optional()
+      .default(1)
+      .describe("Page number (1-based, default: 1)"),
+    page_size: z
+      .number()
+      .optional()
+      .default(100)
+      .describe("Items per page (default: 100, max: 500)"),
   },
 };
 

@@ -61,22 +61,20 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) or 
 {
   "mcpServers": {
     "gitlab": {
-      "transport": "sse",
-      "url": "http://localhost:3000/gitlab/sse",
+      "type": "http",
+      "url": "http://localhost:3000/gitlab/mcp",
       "headers": {
         "X-GitLab-URL": "https://gitlab.nexdev.net",
         "X-GitLab-Token": "your-gitlab-token-here"
-      },
-      "description": "GitLab merge requests and code review tools"
+      }
     },
     "sonarqube": {
-      "transport": "sse",
-      "url": "http://localhost:3000/sonarqube/sse",
+      "type": "http",
+      "url": "http://localhost:3000/sonarqube/mcp",
       "headers": {
         "X-SonarQube-URL": "https://sonarqube.example.com",
         "X-SonarQube-Token": "your-sonarqube-token-here"
-      },
-      "description": "SonarQube code quality metrics and analysis"
+      }
     }
   }
 }
@@ -90,22 +88,18 @@ Edit `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "gitlab": {
-      "transport": "sse",
-      "url": "http://localhost:3000/gitlab/sse",
+      "url": "http://localhost:3000/gitlab/mcp",
       "headers": {
         "X-GitLab-URL": "https://gitlab.nexdev.net",
         "X-GitLab-Token": "your-gitlab-token-here"
-      },
-      "description": "GitLab merge requests and code review tools"
+      }
     },
     "sonarqube": {
-      "transport": "sse",
-      "url": "http://localhost:3000/sonarqube/sse",
+      "url": "http://localhost:3000/sonarqube/mcp",
       "headers": {
         "X-SonarQube-URL": "https://sonarqube.example.com",
         "X-SonarQube-Token": "your-sonarqube-token-here"
-      },
-      "description": "SonarQube code quality metrics and analysis"
+      }
     }
   }
 }
@@ -131,11 +125,10 @@ This server uses HTTP headers for configuration instead of environment variables
 Get merge request details with code review comments (supports pagination).
 
 **Parameters:**
-- `url` (string): Full GitLab MR URL
-- OR `projectPath` + `mrId`
-- `page` (number): Page number (default: 1)
-- `per_page` (number): Notes per page (default: 100, max: 100)
-- `sort` (string): "asc" or "desc" (default: "desc")
+- `url` (string, required): Full GitLab MR URL
+- `page` (number, optional): Page number (default: 1)
+- `per_page` (number, optional): Notes per page (default: 100, max: 100)
+- `sort` (string, optional): "asc" or "desc" (default: "desc")
 
 **Example:**
 ```json
@@ -275,9 +268,9 @@ mcp_server/
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PORT` | No | Server port (default: 3000, Docker only) |
+| Variable | Required | Description                              |
+| -------- | -------- | ---------------------------------------- |
+| `PORT`   | No       | Server port (default: 3000, Docker only) |
 
 **Note**: Service configuration (URLs and tokens) is passed via HTTP headers, not environment variables. See [Configuration via Headers](#configuration-via-headers) section.
 

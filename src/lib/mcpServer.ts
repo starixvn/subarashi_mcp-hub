@@ -1,14 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 
 export interface MCPTool {
   name: string;
   description: string;
-  inputSchema: {
-    type: string;
-    properties?: Record<string, any>;
-    required?: string[];
-    [key: string]: any;
-  };
+  inputSchema: Record<string, z.ZodTypeAny>;
 }
 
 export interface ToolResult {
@@ -44,7 +40,7 @@ export function createMCPServer({
       tool.name,
       {
         description: tool.description,
-        inputSchema: tool.inputSchema as any,
+        inputSchema: tool.inputSchema,
       },
       async (args: any) => {
         try {

@@ -1,15 +1,12 @@
 import { GitLabConfig } from "../config.js";
 import { MCPTool, ToolResult } from "@/lib/mcpServer.js";
 import { createHttpClient } from "@/lib/httpClient.js";
+import { z } from "zod";
 
 export const healthCheckTool: MCPTool = {
   name: "gitlab_health_check",
   description: "Check GitLab server health and connectivity",
-  inputSchema: {
-    type: "object",
-    properties: {},
-    required: [],
-  },
+  inputSchema: {},
 };
 
 export function createHealthCheckHandler(config: GitLabConfig) {
