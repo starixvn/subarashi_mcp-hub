@@ -19,36 +19,34 @@ COPY src ./src
 RUN npm run build
 
 # ========================================
-# Stage 2: Runtime (Production)
+# Stage 2: Runtime Image
 # ========================================
 FROM hub.nexdev.net/base/node:24-alpine-25h2 AS runtime
 
-# Set production environment
-ENV NODE_ENV=production
-ENV PORT=5000
+# Don't run as root
+RUN adduser --disabled-password \
+    --home /app \
+    --gecos '' nodeuser && chown -R nodeuser /app && chown -R nodeuser /tmp
+USER nodeuser
+#
 
-# Create non-root user and group
-RUN groupadd -r -g 1000 node && \
-    useradd -r -u 1000 -g node node
-
-# Set working directory with proper ownership
 WORKDIR /app
-RUN chown node:node /app
 
 # Copy package files
-COPY --chown=node:node package*.json ./
+COPY package*.json ./
 
 # Install only production dependencies
 RUN npm ci --omit=dev
 
 # Copy built application from builder stage
-COPY --chown=node:node --from=builder /app/dist ./dist
+COPY --from=builder /app/dist ./dist
 
-# Expose port
+# Set production environment
+ENV NODE_ENV=production
+ENV TZ="America/La_Paz"
+
+ENV PORT=5000
 EXPOSE 5000
 
-# Switch to non-root user
-USER node
-
-# Start server (from compiled dist/)
-CMD ["node", "dist/index.js"]
+# Start the application
+ENTRYPOINT ["node", "dist/index.js"]
