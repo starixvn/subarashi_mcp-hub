@@ -43,6 +43,13 @@ export const getMergeRequestTool: MCPTool = {
       .describe(
         "Show only unresolved issues (default: false). When true, filters for resolvable comments that are not yet resolved."
       ),
+    include_nitpicks: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Include nitpick comments regardless of resolution status (default: false). When true, includes comments with '🧹 Nitpick' markers."
+      ),
   },
 };
 
@@ -76,6 +83,7 @@ interface MergeRequestArgs {
   sort?: "asc" | "desc";
   filter_author?: string;
   unresolved_only?: boolean;
+  include_nitpicks?: boolean;
 }
 
 export function createMergeRequestHandler(config: GitLabConfig) {
@@ -152,6 +160,26 @@ export function createMergeRequestHandler(config: GitLabConfig) {
         );
       }
 
+      // Include nitpicks if requested
+      if (args.include_nitpicks) {
+        // Get all nitpick comments that weren't already included
+        const nitpickNotes = notesResponse.data.filter(
+          (note: any) =>
+            !note.system &&
+            (note.body.includes("🧹 Nitpick") ||
+              note.body.includes("_🧹 Nitpick_")) &&
+            // Filter by author if specified
+            (!args.filter_author || note.author?.username === args.filter_author)
+        );
+
+        // Merge with existing filtered notes (avoid duplicates)
+        const existingIds = new Set(notes.map((n: any) => n.id));
+        const newNitpicks = nitpickNotes.filter(
+          (n: any) => !existingIds.has(n.id)
+        );
+        notes = [...notes, ...newNitpicks];
+      }
+
       // Process comments
       const codeReviewComments: any[] = [];
       const generalComments: any[] = [];
@@ -211,6 +239,9 @@ export function createMergeRequestHandler(config: GitLabConfig) {
       }
       if (args.unresolved_only) {
         filterInfo.push("Unresolved only");
+      }
+      if (args.include_nitpicks) {
+        filterInfo.push("Include nitpicks");
       }
       const filterText = filterInfo.length > 0
         ? `\n**Filters Applied:** ${filterInfo.join(", ")}\n`
