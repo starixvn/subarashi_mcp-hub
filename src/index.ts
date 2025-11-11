@@ -17,7 +17,7 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     message: "Multi-SSE MCP Server is running",
-    version: "2.0.0",
+    version: "1.0.0",
   });
 });
 

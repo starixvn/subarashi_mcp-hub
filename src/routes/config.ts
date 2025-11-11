@@ -11,14 +11,14 @@ export function configRoute(req: Request, res: Response): void {
   res.json({
     mcpServers: {
       gitlab: {
-        url: `${baseUrl}/gitlab/sse`,
+        url: `${baseUrl}/gitlab/mcp`,
         headers: {
           "X-GitLab-URL": "https://gitlab.example.com",
           "X-GitLab-Token": "your-gitlab-token-here",
         },
       },
       sonarqube: {
-        url: `${baseUrl}/sonarqube/sse`,
+        url: `${baseUrl}/sonarqube/mcp`,
         headers: {
           "X-SonarQube-URL": "https://sonarqube.example.com",
           "X-SonarQube-Token": "your-sonarqube-token-here",
