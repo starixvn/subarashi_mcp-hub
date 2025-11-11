@@ -30,6 +30,19 @@ export const getMergeRequestTool: MCPTool = {
       .describe(
         "Sort order by creation date (asc=oldest first, desc=newest first, default: desc)"
       ),
+    filter_author: z
+      .string()
+      .optional()
+      .describe(
+        "Filter comments by author username (e.g., 'coderabbitai'). If not specified, all authors are included."
+      ),
+    unresolved_only: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Show only unresolved issues (default: false). When true, filters for resolvable comments that are not yet resolved."
+      ),
   },
 };
 
@@ -61,6 +74,8 @@ interface MergeRequestArgs {
   page?: number;
   per_page?: number;
   sort?: "asc" | "desc";
+  filter_author?: string;
+  unresolved_only?: boolean;
 }
 
 export function createMergeRequestHandler(config: GitLabConfig) {
@@ -103,12 +118,12 @@ export function createMergeRequestHandler(config: GitLabConfig) {
         }
       );
 
-      const notes = notesResponse.data;
+      let notes = notesResponse.data;
       const totalPages = parseInt(
         notesResponse.headers["x-total-pages"] || "1",
         10
       );
-      const totalCount = parseInt(
+      const totalNotesCount = parseInt(
         notesResponse.headers["x-total"] || String(notes.length),
         10
       );
@@ -117,22 +132,57 @@ export function createMergeRequestHandler(config: GitLabConfig) {
         10
       );
 
+      // Apply filters
+      const originalNotesCount = notes.length;
+
+      // Filter out system notes
+      notes = notes.filter((note: any) => !note.system);
+
+      // Filter by author if specified
+      if (args.filter_author) {
+        notes = notes.filter(
+          (note: any) => note.author?.username === args.filter_author
+        );
+      }
+
+      // Filter for unresolved only if specified
+      if (args.unresolved_only) {
+        notes = notes.filter(
+          (note: any) => note.resolvable && !note.resolved
+        );
+      }
+
       // Process comments
       const codeReviewComments: any[] = [];
       const generalComments: any[] = [];
       let unresolvedCount = 0;
 
-      for (const note of notes) {
-        if (note.system) continue;
+      // Helper function to detect severity from comment body
+      const detectSeverity = (body: string): string => {
+        if (body.includes("🔴 Critical") || body.includes("_🔴 Critical_")) {
+          return "Critical";
+        }
+        if (body.includes("⚠️ Potential issue") || body.includes("_⚠️ Potential issue_")) {
+          return "Potential Issue";
+        }
+        if (body.includes("🧹 Nitpick") || body.includes("_🧹 Nitpick_")) {
+          return "Nitpick";
+        }
+        return "General";
+      };
 
+      for (const note of notes) {
         const comment: any = {
           id: note.id,
-          author: note.author?.name || "Unknown",
-          author_username: note.author?.username || "",
+          author: {
+            name: note.author?.name || "Unknown",
+            username: note.author?.username || "",
+          },
           body: note.body,
           created_at: note.created_at,
           resolvable: note.resolvable || false,
           resolved: note.resolved || false,
+          severity: detectSeverity(note.body),
         };
 
         if (note.position) {
@@ -153,37 +203,68 @@ export function createMergeRequestHandler(config: GitLabConfig) {
       const createdDate = new Date(mergeRequest.created_at)
         .toISOString()
         .split("T")[0];
+
+      // Build filter info
+      const filterInfo: string[] = [];
+      if (args.filter_author) {
+        filterInfo.push(`Author: @${args.filter_author}`);
+      }
+      if (args.unresolved_only) {
+        filterInfo.push("Unresolved only");
+      }
+      const filterText = filterInfo.length > 0
+        ? `\n**Filters Applied:** ${filterInfo.join(", ")}\n`
+        : "";
+
       let markdown = `# [${mergeRequest.title}](${mergeRequest.web_url})
 
 **Author:** ${mergeRequest.author?.name || "Unknown"}
 **Created:** ${createdDate}
-
-**📄 Page ${currentPage} of ${totalPages}** (Showing ${notes.length} of ${totalCount} total notes)
+${filterText}
+**📄 Page ${currentPage} of ${totalPages}** (Showing ${notes.length} filtered notes from ${originalNotesCount} notes on this page, ${totalNotesCount} total in MR)
 
 ## Code Review Comments
 
 `;
 
       if (codeReviewComments.length > 0) {
-        for (const comment of codeReviewComments) {
-          const status = comment.resolvable
-            ? comment.resolved
-              ? "✅ Resolved"
-              : "⚠️ Unresolved"
-            : "";
+        // Group by severity
+        const groupedComments = {
+          Critical: codeReviewComments.filter((c) => c.severity === "Critical"),
+          "Potential Issue": codeReviewComments.filter(
+            (c) => c.severity === "Potential Issue"
+          ),
+          Nitpick: codeReviewComments.filter((c) => c.severity === "Nitpick"),
+          General: codeReviewComments.filter((c) => c.severity === "General"),
+        };
 
-          markdown += `### File: ${comment.file_path}${
-            comment.line ? ` (Line ${comment.line})` : ""
+        for (const [severity, comments] of Object.entries(groupedComments)) {
+          if (comments.length === 0) continue;
+
+          if (severity !== "General") {
+            markdown += `### ${severity} (${comments.length})\n\n`;
           }
-**Author:** @${comment.author_username || comment.author}${
-            status ? ` | **Status:** ${status}` : ""
-          }
+
+          for (const comment of comments) {
+            const status = comment.resolvable
+              ? comment.resolved
+                ? "✅ Resolved"
+                : "⚠️ Unresolved"
+              : "";
+
+            markdown += `#### File: ${comment.file_path}${
+              comment.line ? ` (Line ${comment.line})` : ""
+            }
+**Author:** @${comment.author.username}${
+              status ? ` | **Status:** ${status}` : ""
+            }
 
 ${comment.body}
 
 ---
 
 `;
+          }
         }
       } else {
         markdown += "*No code review comments on this page.*\n\n---\n\n";
@@ -192,7 +273,7 @@ ${comment.body}
       if (generalComments.length > 0) {
         markdown += `## General Discussion\n\n`;
         for (const comment of generalComments) {
-          markdown += `**@${comment.author_username || comment.author}** (${
+          markdown += `**@${comment.author.username}** (${
             comment.created_at
           }):
 
@@ -204,14 +285,28 @@ ${comment.body}
         }
       }
 
+      // Calculate severity counts
+      const criticalCount = codeReviewComments.filter(
+        (c) => c.severity === "Critical"
+      ).length;
+      const potentialIssueCount = codeReviewComments.filter(
+        (c) => c.severity === "Potential Issue"
+      ).length;
+      const nitpickCount = codeReviewComments.filter(
+        (c) => c.severity === "Nitpick"
+      ).length;
+
       markdown += `## Summary
 
-- **Total Notes (All Pages):** ${totalCount}
+- **Total Notes in MR:** ${totalNotesCount}
 - **Current Page:** ${currentPage} of ${totalPages}
-- **Notes on This Page:** ${notes.length}
-- **Code Review Comments (This Page):** ${codeReviewComments.length}
-- **General Comments (This Page):** ${generalComments.length}
-- **Unresolved (This Page):** ${unresolvedCount}
+- **Filtered Notes on This Page:** ${notes.length} (from ${originalNotesCount} before filtering)
+- **Code Review Comments:** ${codeReviewComments.length}
+  - Critical: ${criticalCount}
+  - Potential Issue: ${potentialIssueCount}
+  - Nitpick: ${nitpickCount}
+- **General Comments:** ${generalComments.length}
+- **Unresolved:** ${unresolvedCount}
 `;
 
       if (currentPage < totalPages) {
