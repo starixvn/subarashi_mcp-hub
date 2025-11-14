@@ -2,11 +2,17 @@ import { GitLabConfig } from "../config.js";
 import { MCPTool, ToolResult } from "@/lib/mcpServer.js";
 import { createHttpClient } from "@/lib/httpClient.js";
 import { z } from "zod";
+import {
+  parseGitLabMRUrl,
+  cleanCommentBody,
+  detectSeverity,
+  extractCommentEssentials,
+} from "../utils.js";
 
-export const getMergeRequestTool: MCPTool = {
-  name: "get-merge-request-details",
+export const getMergeRequestIssuesTool: MCPTool = {
+  name: "get-merge-request-issues",
   description:
-    "Get GitLab merge request details with code review comments. Returns a formatted Markdown summary with pagination support.",
+    "Get GitLab merge request issues and code review comments (excludes nitpicks). Returns critical issues, potential issues, and general comments with pagination support.",
   inputSchema: {
     url: z
       .string()
@@ -43,51 +49,20 @@ export const getMergeRequestTool: MCPTool = {
       .describe(
         "Show only unresolved issues (default: false). When true, filters for resolvable comments that are not yet resolved."
       ),
-    include_nitpicks: z
-      .boolean()
-      .optional()
-      .default(false)
-      .describe(
-        "Include nitpick comments regardless of resolution status (default: false). When true, includes comments with '🧹 Nitpick' markers."
-      ),
   },
 };
 
-interface ParsedMRUrl {
-  projectPath: string;
-  mrId: number;
-}
-
-function parseGitLabMRUrl(url: string): ParsedMRUrl {
-  if (!url || typeof url !== "string") {
-    throw new Error("❌ Invalid merge request URL");
-  }
-
-  const urlWithoutProtocol = url.replace(/^https?:\/\/[^\/]+\//, "");
-  const parts = urlWithoutProtocol.split("/-/merge_requests/");
-
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error("❌ Invalid GitLab merge request URL format");
-  }
-
-  return {
-    projectPath: parts[0],
-    mrId: parseInt(parts[1], 10),
-  };
-}
-
-interface MergeRequestArgs {
+interface MergeRequestIssuesArgs {
   url: string;
   page?: number;
   per_page?: number;
   sort?: "asc" | "desc";
   filter_author?: string;
   unresolved_only?: boolean;
-  include_nitpicks?: boolean;
 }
 
-export function createMergeRequestHandler(config: GitLabConfig) {
-  return async function(args: MergeRequestArgs): Promise<ToolResult> {
+export function createMergeRequestIssuesHandler(config: GitLabConfig) {
+  return async function(args: MergeRequestIssuesArgs): Promise<ToolResult> {
     const client = createHttpClient({
       baseURL: config.url,
       auth: { type: "token", token: config.token },
@@ -99,7 +74,7 @@ export function createMergeRequestHandler(config: GitLabConfig) {
         error: "❌ GitLab not configured. Provide gitlab_url and gitlab_token query parameters.",
       };
     }
-    console.log('call mcp')
+
     try {
       const parsed = parseGitLabMRUrl(args.url);
       const encodedProjectPath = encodeURIComponent(parsed.projectPath);
@@ -146,6 +121,12 @@ export function createMergeRequestHandler(config: GitLabConfig) {
       // Filter out system notes
       notes = notes.filter((note: any) => !note.system);
 
+      // Filter out nitpick comments entirely
+      notes = notes.filter((note: any) => {
+        const body = note.body || "";
+        return !body.includes("🧹 Nitpick") && !body.includes("_🧹 Nitpick_");
+      });
+
       // Filter by author if specified
       if (args.filter_author) {
         notes = notes.filter(
@@ -160,46 +141,15 @@ export function createMergeRequestHandler(config: GitLabConfig) {
         );
       }
 
-      // Include nitpicks if requested
-      if (args.include_nitpicks) {
-        // Get all nitpick comments that weren't already included
-        const nitpickNotes = notesResponse.data.filter(
-          (note: any) =>
-            !note.system &&
-            (note.body.includes("🧹 Nitpick") ||
-              note.body.includes("_🧹 Nitpick_")) &&
-            // Filter by author if specified
-            (!args.filter_author || note.author?.username === args.filter_author)
-        );
-
-        // Merge with existing filtered notes (avoid duplicates)
-        const existingIds = new Set(notes.map((n: any) => n.id));
-        const newNitpicks = nitpickNotes.filter(
-          (n: any) => !existingIds.has(n.id)
-        );
-        notes = [...notes, ...newNitpicks];
-      }
-
       // Process comments
       const codeReviewComments: any[] = [];
       const generalComments: any[] = [];
       let unresolvedCount = 0;
 
-      // Helper function to detect severity from comment body
-      const detectSeverity = (body: string): string => {
-        if (body.includes("🔴 Critical") || body.includes("_🔴 Critical_")) {
-          return "Critical";
-        }
-        if (body.includes("⚠️ Potential issue") || body.includes("_⚠️ Potential issue_")) {
-          return "Potential Issue";
-        }
-        if (body.includes("🧹 Nitpick") || body.includes("_🧹 Nitpick_")) {
-          return "Nitpick";
-        }
-        return "General";
-      };
-
       for (const note of notes) {
+        const severity = detectSeverity(note.body);
+        const essentials = extractCommentEssentials(note.body, severity);
+
         const comment: any = {
           id: note.id,
           author: {
@@ -210,7 +160,8 @@ export function createMergeRequestHandler(config: GitLabConfig) {
           created_at: note.created_at,
           resolvable: note.resolvable || false,
           resolved: note.resolved || false,
-          severity: detectSeverity(note.body),
+          severity,
+          essentials,
         };
 
         if (note.position) {
@@ -240,12 +191,8 @@ export function createMergeRequestHandler(config: GitLabConfig) {
       if (args.unresolved_only) {
         filterInfo.push("Unresolved only");
       }
-      if (args.include_nitpicks) {
-        filterInfo.push("Include nitpicks");
-      }
-      const filterText = filterInfo.length > 0
-        ? `\n**Filters Applied:** ${filterInfo.join(", ")}\n`
-        : "";
+      filterInfo.push("Excludes nitpicks");
+      const filterText = `\n**Filters Applied:** ${filterInfo.join(", ")}\n`;
 
       let markdown = `# [${mergeRequest.title}](${mergeRequest.web_url})
 
@@ -265,7 +212,6 @@ ${filterText}
           "Potential Issue": codeReviewComments.filter(
             (c) => c.severity === "Potential Issue"
           ),
-          Nitpick: codeReviewComments.filter((c) => c.severity === "Nitpick"),
           General: codeReviewComments.filter((c) => c.severity === "General"),
         };
 
@@ -283,18 +229,39 @@ ${filterText}
                 : "⚠️ Unresolved"
               : "";
 
+            const { essentials } = comment;
+
             markdown += `#### File: ${comment.file_path}${
               comment.line ? ` (Line ${comment.line})` : ""
-            }
-**Author:** @${comment.author.username}${
+            }\n`;
+            markdown += `**Author:** @${comment.author.username}${
               status ? ` | **Status:** ${status}` : ""
+            }\n\n`;
+
+            // Add title if available
+            if (essentials.title) {
+              markdown += `**${essentials.title}**\n\n`;
             }
 
-${comment.body}
+            // Add description if available
+            if (essentials.description) {
+              markdown += `${essentials.description}\n\n`;
+            }
 
----
+            // Add fixes if available
+            if (essentials.fixes.length > 0) {
+              markdown += `**Fix:**\n\n`;
+              for (const fix of essentials.fixes) {
+                markdown += `\`\`\`diff\n${fix}\n\`\`\`\n\n`;
+              }
+            }
 
-`;
+            // Add AI prompt if available (useful for automated fixing)
+            if (essentials.aiPrompt) {
+              markdown += `<details>\n<summary>🤖 AI Fix Prompt</summary>\n\n\`\`\`\n${essentials.aiPrompt}\n\`\`\`\n\n</details>\n\n`;
+            }
+
+            markdown += `---\n\n`;
           }
         }
       } else {
@@ -304,15 +271,10 @@ ${comment.body}
       if (generalComments.length > 0) {
         markdown += `## General Discussion\n\n`;
         for (const comment of generalComments) {
+          const cleanedBody = cleanCommentBody(comment.body);
           markdown += `**@${comment.author.username}** (${
             comment.created_at
-          }):
-
-${comment.body}
-
----
-
-`;
+          }):\n\n${cleanedBody}\n\n---\n\n`;
         }
       }
 
@@ -323,9 +285,6 @@ ${comment.body}
       const potentialIssueCount = codeReviewComments.filter(
         (c) => c.severity === "Potential Issue"
       ).length;
-      const nitpickCount = codeReviewComments.filter(
-        (c) => c.severity === "Nitpick"
-      ).length;
 
       markdown += `## Summary
 
@@ -335,7 +294,6 @@ ${comment.body}
 - **Code Review Comments:** ${codeReviewComments.length}
   - Critical: ${criticalCount}
   - Potential Issue: ${potentialIssueCount}
-  - Nitpick: ${nitpickCount}
 - **General Comments:** ${generalComments.length}
 - **Unresolved:** ${unresolvedCount}
 `;
